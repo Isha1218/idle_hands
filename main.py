@@ -7,6 +7,7 @@ import asyncio
 notifier = DesktopNotifier()
 
 mouth_landmarks = [0, 267, 269, 270, 409, 306, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61, 185, 40, 39, 37]
+fingertip_landmarks = [4, 8, 12, 16, 20]
 
 mp_hands = mp.solutions.hands
 mp_face_mesh = mp.solutions.face_mesh
@@ -14,8 +15,8 @@ mp_face_mesh = mp.solutions.face_mesh
 mp_drawing = mp.solutions.drawing_utils
 webcam = cv2.VideoCapture(0)
 
-async def sendNotif():
-    n = await notifier.send(title='HANDS APART!', message='Stop touching your hands')
+async def sendNotif(message):
+    n = await notifier.send(title='HANDS APART!', message=message)
 
 def calculate_dist(pt1, pt2):
     return math.sqrt((pt1[0] - pt2[0])**2 + (pt1[1] - pt2[1])**2)
@@ -25,6 +26,23 @@ def hands_touching():
     right_index_finger = right_hand[8]
     dist = calculate_dist(left_index_finger, right_index_finger)
     return dist < 125
+
+def point_in_mouth(pt):
+    num_vertices = len(mouth)
+    x = pt[0]
+    y = pt[1]
+    inside = False
+
+    p1 = mouth[0]
+
+    for i in range(1, num_vertices + 1):
+        p2 = mouth[i % num_vertices]
+        if y > min(p1[1], p2[1]) and y <= max(p1[1], p2[1]) and x <= max(p1[0], p2[0]):
+            x_intersection = (y - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1]) + p1[0]
+            if p1[0] == p2[0] or x <= x_intersection:
+                inside = not inside
+        p1 = p2
+    return inside
 
 with mp_hands.Hands(min_detection_confidence=0.7,
                     min_tracking_confidence=0.7,
@@ -51,7 +69,6 @@ with mp_hands.Hands(min_detection_confidence=0.7,
                     lm = face_landmarks.landmark[i]
                     x, y = int(lm.x * w), int(lm.y * h)
                     mouth.append((x, y))
-                    print(x, y)
                 for landmark in mouth:
                     cv2.circle(img, (landmark[0], landmark[1]), 3, (0, 255, 0), -1)
 
@@ -75,11 +92,21 @@ with mp_hands.Hands(min_detection_confidence=0.7,
                 cx, cy = int(hand_landmarks.landmark[0].x * w), int(hand_landmarks.landmark[0].y * h)
                 cv2.putText(img, label, (cx, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # if left_hand and right_hand and hands_touching():
-        #     asyncio.run(sendNotif())
-        #     print('hands are touching')
-        # else:
-        #     print('hand not touching')
+        if left_hand and right_hand and hands_touching():
+            print('hands are touching')
+            asyncio.run(sendNotif('Stop touching your hands'))
+        elif left_hand and mouth:
+            for fingertip in fingertip_landmarks:
+                if left_hand[fingertip]:
+                    print('mouth')
+                    asyncio.run(sendNotif('Stop touching your mouth'))
+        elif right_hand and mouth:
+            for fingertip in fingertip_landmarks:
+                if right_hand[fingertip]:
+                    print('mouth')
+                    asyncio.run(sendNotif('Stop touching your mouth'))
+        else:
+            print('Not inside mouth or hands')
 
         cv2.imshow('Ishita', img)
         if cv2.waitKey(5) & 0xFF == ord('q'):
